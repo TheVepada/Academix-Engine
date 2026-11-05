@@ -107,3 +107,17 @@ def sort_tasks_by_urgency(
     # Primary sort: TUI score (descending), Secondary sort: hours_left (ascending)
     scored_tasks.sort(key=lambda t: (-t["tui_score"], t["hours_left"]))
     return scored_tasks
+
+def format_db_rows_to_tasks(db_rows: list) -> list:
+    """Helper to convert Member 1's SQLite tuples into dictionary format."""
+    tasks = []
+    for row in db_rows:
+        tasks.append({
+            "id": row[0],
+            "title": row[1],
+            "deadline": row[2],
+            "estimated_effort": row[3],
+            "priority_weight": row[4],
+            "status": row[5] if len(row) > 5 else "pending"
+        })
+    return tasks
