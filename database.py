@@ -8,8 +8,9 @@ DB_NAME = "academix.db"
 
 
 def get_connection():
-    """Returns a SQLite connection with row factory enabled for clean dict access."""
-    conn = sqlite3.connect(DB_NAME)
+    """Returns a SQLite connection with timeout and WAL journal mode for multi-threading."""
+    conn = sqlite3.connect(DB_NAME, timeout=15.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -88,6 +89,8 @@ def delete_task(task_id: int):
         cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
         conn.commit()
 
+        
+
 
 # ==================== Telemetry Logs & Distraction Aggregation ====================
 
@@ -119,3 +122,15 @@ def get_distraction_minutes_last_hour() -> float:
         # Each sample is 3 seconds -> minutes = (samples * 3) / 60 = samples / 20
         distraction_minutes = distracting_samples / 60.0
         return round(distraction_minutes, 1)
+
+def get_recent_logs(limit: int = 15) -> List[Dict[str, Any]]:
+    """Fetches the latest activity logs from Member 3's telemetry daemon."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT window_title, category, timestamp 
+            FROM activity_logs 
+            ORDER BY id DESC 
+            LIMIT ?
+        """, (limit,))
+        return [dict(row) for row in cursor.fetchall()]

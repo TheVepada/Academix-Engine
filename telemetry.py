@@ -71,8 +71,9 @@ def start_tracking():
             category = "Distracting" if is_distracted else "Productive"
             try:
                 log_activity(window_title=title, category=category)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[DB LOG ERROR] : {e}")
+
 
             if is_distracted:
                 if not in_distraction:

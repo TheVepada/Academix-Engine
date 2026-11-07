@@ -3,10 +3,8 @@ import calendar
 from datetime import datetime, timedelta
 import customtkinter as ctk
 
-try:
-    import database  # Member 1's file (optional while developing)
-except ImportError:
-    database = None
+import database
+from urgency_engine import sort_tasks_by_urgency
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -15,18 +13,12 @@ RED, YEL, GRN = "#D32F2F", "#F57C00", "#388E3C"
 MONTHS = list(calendar.month_abbr)[1:]
 
 
-# ------------------------------------------------------------------
-# Urgency helpers (placeholder: swap with Member 2's urgency_engine)
-# ------------------------------------------------------------------
-def compute_urgency(weight, deadline):
-    hours = (deadline - datetime.now()).total_seconds() / 3600
-    if hours <= 0:
-        return hours, 100.0
-    return hours, min(100.0, round(weight / (hours + 1) * 50, 1))
-
-
-def color_for(hours):
-    return RED if hours < 24 else YEL if hours < 72 else GRN
+def color_for_tier(tier: str):
+    if "CRITICAL" in tier:
+        return RED
+    elif "MEDIUM" in tier:
+        return YEL
+    return GRN
 
 
 def fmt_left(hours):
@@ -45,7 +37,6 @@ class AcademixApp(ctk.CTk):
         self.title("Academix Engine")
         self.geometry("1100x680")
         self.minsize(950, 600)
-        self.tasks = []  # {"title", "deadline", "weight"}
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
@@ -56,7 +47,6 @@ class AcademixApp(ctk.CTk):
             "Telemetry": self.build_telemetry(),
             "Analytics": self.build_analytics(),
         }
-        self.seed_tasks()
         self.show_page("Home")
         self.tick()
 
@@ -105,8 +95,8 @@ class AcademixApp(ctk.CTk):
         row = ctk.CTkFrame(p, fg_color="transparent")
         row.grid(row=2, column=0, sticky="ew")
         self.stats = {}
-        for i, (key, label) in enumerate([("active", "Active Tasks"), ("urgent", "Urgent (<24h)"),
-                                         ("focus", "Focus Score")]):
+        for i, (key, label) in enumerate([("active", "Active Tasks"), ("urgent", "Critical Tasks"),
+                                         ("focus", "Distraction (1h)")]):
             row.grid_columnconfigure(i, weight=1)
             card = ctk.CTkFrame(row, corner_radius=12, height=100)
             card.grid(row=0, column=i, sticky="ew", padx=6)
@@ -117,7 +107,7 @@ class AcademixApp(ctk.CTk):
 
         self.next_card = ctk.CTkFrame(p, corner_radius=12)
         self.next_card.grid(row=3, column=0, sticky="ew", padx=6, pady=20)
-        ctk.CTkLabel(self.next_card, text="⚡ Next Up", font=ctk.CTkFont(size=14, weight="bold")).pack(
+        ctk.CTkLabel(self.next_card, text="⚡ Next Priority Task", font=ctk.CTkFont(size=14, weight="bold")).pack(
             anchor="w", padx=20, pady=(15, 0))
         self.next_lbl = ctk.CTkLabel(self.next_card, text="", font=ctk.CTkFont(size=18), anchor="w")
         self.next_lbl.pack(anchor="w", padx=20, pady=(5, 0))
@@ -138,11 +128,16 @@ class AcademixApp(ctk.CTk):
         form = ctk.CTkFrame(p, corner_radius=12)
         form.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         ctk.CTkLabel(form, text="Add New Assignment", font=ctk.CTkFont(size=16, weight="bold")).pack(
-            padx=20, pady=(22, 12), anchor="w")
+            padx=20, pady=(15, 10), anchor="w")
 
         ctk.CTkLabel(form, text="Task Title").pack(padx=20, anchor="w")
-        self.entry_title = ctk.CTkEntry(form, placeholder_text="e.g., Data Structures Lab Report", height=36)
-        self.entry_title.pack(padx=20, pady=(4, 12), fill="x")
+        self.entry_title = ctk.CTkEntry(form, placeholder_text="e.g., Algorithms Final Submission", height=34)
+        self.entry_title.pack(padx=20, pady=(4, 10), fill="x")
+
+        ctk.CTkLabel(form, text="Estimated Effort (Hours)").pack(padx=20, anchor="w")
+        self.entry_effort = ctk.CTkEntry(form, placeholder_text="e.g., 2.0", height=34)
+        self.entry_effort.pack(padx=20, pady=(4, 10), fill="x")
+        self.entry_effort.insert(0, "2.0")
 
         ctk.CTkLabel(form, text="Deadline").pack(padx=20, anchor="w")
         d = ctk.CTkFrame(form, fg_color="transparent")
@@ -156,8 +151,9 @@ class AcademixApp(ctk.CTk):
         self.year.set(str(tmr.year))
         for w in (self.day, self.month, self.year):
             w.pack(side="left", padx=(0, 5))
+
         t = ctk.CTkFrame(form, fg_color="transparent")
-        t.pack(padx=20, pady=(0, 12), fill="x")
+        t.pack(padx=20, pady=(0, 10), fill="x")
         ctk.CTkLabel(t, text="🕒 Time").pack(side="left", padx=(0, 8))
         self.hour = ctk.CTkOptionMenu(t, values=[f"{i:02d}" for i in range(24)], width=62)
         self.minute = ctk.CTkOptionMenu(t, values=["00", "15", "30", "45", "59"], width=62)
@@ -167,7 +163,7 @@ class AcademixApp(ctk.CTk):
         ctk.CTkLabel(t, text=":").pack(side="left", padx=3)
         self.minute.pack(side="left")
 
-        ctk.CTkLabel(form, text="Importance (1 - 10)").pack(padx=20, anchor="w")
+        ctk.CTkLabel(form, text="Priority Weight (1 - 10)").pack(padx=20, anchor="w")
         self.slider = ctk.CTkSlider(form, from_=1, to=10, number_of_steps=9, command=self.on_slide)
         self.slider.set(5)
         self.slider.pack(padx=20, pady=(4, 2), fill="x")
@@ -175,8 +171,8 @@ class AcademixApp(ctk.CTk):
         self.w_lbl.pack(padx=20, anchor="w")
 
         self.msg = ctk.CTkLabel(form, text="", text_color=RED, font=ctk.CTkFont(size=11))
-        self.msg.pack(padx=20, pady=(8, 0), anchor="w")
-        ctk.CTkButton(form, text="Save & Compute Urgency", height=40,
+        self.msg.pack(padx=20, pady=(6, 0), anchor="w")
+        ctk.CTkButton(form, text="Save & Compute Urgency", height=38,
                       font=ctk.CTkFont(size=13, weight="bold"), command=self.add_task).pack(
             padx=20, pady=8, fill="x")
 
@@ -198,84 +194,75 @@ class AcademixApp(ctk.CTk):
         if not title:
             self.msg.configure(text="⚠ Please enter a task title.")
             return
+
+        try:
+            effort = float(self.entry_effort.get().strip())
+        except ValueError:
+            self.msg.configure(text="⚠ Estimated effort must be a number.")
+            return
+
         try:
             dl = datetime(int(self.year.get()), MONTHS.index(self.month.get()) + 1,
                           int(self.day.get()), int(self.hour.get()), int(self.minute.get()))
         except ValueError:
             self.msg.configure(text="⚠ That date doesn't exist.")
             return
+
         if dl <= datetime.now():
             self.msg.configure(text="⚠ Deadline must be in the future.")
             return
-        task = {"title": title, "deadline": dl, "weight": int(self.slider.get())}
-        self.tasks.append(task)
-        self.save_to_db(task)
+
+        dl_str = dl.strftime("%Y-%m-%d %H:%M")
+        weight = float(self.slider.get())
+
+        database.add_task(title=title, deadline=dl_str, estimated_effort=effort, priority_weight=weight)
         self.entry_title.delete(0, "end")
         self.msg.configure(text="")
         self.refresh()
 
-    def save_to_db(self, task):
-        fn = getattr(database, "save_task", None) or getattr(database, "add_task", None)
-        if fn:
-            try:
-                fn(task["title"], task["deadline"].strftime("%Y-%m-%d %H:%M"), task["weight"])
-            except Exception as e:
-                print("DB save failed (check signature):", e)
-
-    def seed_tasks(self):
-        now = datetime.now()
-        for title, hrs, w in [("Algorithms Assignment 3", 6, 9), ("SRS Report Draft", 18, 8),
-                            ("Database Normalization Lab", 72, 6), ("Web Engineering Project Setup", 168, 4)]:
-            self.tasks.append({"title": title, "deadline": now + timedelta(hours=hrs), "weight": w})
-
     def card(self, t):
-        hours, score = t["hours"], t["score"]
+        hours = t.get("hours_left", 0.0)
+        score = t.get("tui_score", 0.0)
+        tier = t.get("urgency_tier", "SAFE (Green)")
+        color = color_for_tier(tier)
+
         c = ctk.CTkFrame(self.feed, corner_radius=8, fg_color=("white", "gray25"))
         c.pack(fill="x", pady=5, padx=4)
-        ctk.CTkFrame(c, width=6, fg_color=color_for(hours), corner_radius=0).pack(side="left", fill="y")
+        ctk.CTkFrame(c, width=6, fg_color=color, corner_radius=0).pack(side="left", fill="y")
         box = ctk.CTkFrame(c, fg_color="transparent")
         box.pack(side="left", fill="both", expand=True, padx=12, pady=10)
         ctk.CTkLabel(box, text=t["title"], font=ctk.CTkFont(size=13, weight="bold"), anchor="w").pack(fill="x")
-        ctk.CTkLabel(box, text=f"⏳ {fmt_left(hours)}  |  Score {score}  |  Weight {t['weight']}",
+        ctk.CTkLabel(box, text=f"⏳ {fmt_left(hours)}  |  TUI Score: {score:.2f}  |  Tier: {tier}",
                      font=ctk.CTkFont(size=11), text_color="gray", anchor="w").pack(fill="x")
-        bar = ctk.CTkProgressBar(box, height=5, progress_color=color_for(hours))
-        bar.set(score / 100)
+        bar = ctk.CTkProgressBar(box, height=5, progress_color=color)
+        bar.set(min(1.0, score))
         bar.pack(fill="x", pady=(6, 0))
         ctk.CTkButton(c, text="✓ Done", width=64, fg_color="transparent", border_width=1,
                       text_color=("gray10", "gray90"),
-                      command=lambda x=t: self.complete(x)).pack(side="right", padx=10)
+                      command=lambda task_id=t["id"]: self.complete(task_id)).pack(side="right", padx=10)
 
-    def complete(self, t):
-        self.tasks.remove(t["ref"])
+    def complete(self, task_id):
+        database.mark_task_complete(task_id)
         self.refresh()
 
     # ---------------- Telemetry ----------------
     def build_telemetry(self):
         p = self.new_page()
-        p.grid_rowconfigure(3, weight=1)
-        ctk.CTkLabel(p, text="🛡️ Telemetry & Alerts", font=ctk.CTkFont(size=22, weight="bold")).grid(
+        p.grid_rowconfigure(2, weight=1)
+        ctk.CTkLabel(p, text="🛡️ Telemetry & Live Monitor", font=ctk.CTkFont(size=22, weight="bold")).grid(
             row=0, column=0, sticky="w", pady=(0, 15))
         box = ctk.CTkFrame(p, corner_radius=12)
         box.grid(row=1, column=0, sticky="ew")
-        self.track = ctk.CTkSwitch(box, text="Track active window every 3s")
-        self.track.select()
-        self.track.pack(anchor="w", padx=20, pady=(18, 10))
-        self.lim_lbl = ctk.CTkLabel(box, text="Alert after 20 min of distraction")
-        self.lim_lbl.pack(anchor="w", padx=20)
-        s = ctk.CTkSlider(box, from_=5, to=60, number_of_steps=11,
-                        command=lambda v: self.lim_lbl.configure(
-                            text=f"Alert after {int(v)} min of distraction"))
-        s.set(20)
-        s.pack(fill="x", padx=20, pady=(4, 18))
-        ctk.CTkLabel(p, text="Recent Activity (sample data; Member 3 feeds real logs)",
-                     text_color="gray").grid(row=2, column=0, sticky="w", pady=(18, 4))
-        log = ctk.CTkTextbox(p, corner_radius=12)
-        log.grid(row=3, column=0, sticky="nsew")
-        log.insert("end", "10:02  Code.exe      - VS Code         ✅ Productive\n"
-                          "10:05  chrome.exe    - YouTube          ❌ Distracting\n"
-                          "10:09  WINWORD.EXE   - SRS Report       ✅ Productive\n"
-                          "10:14  Discord.exe   - #general         ❌ Distracting\n")
-        log.configure(state="disabled")
+
+        ctk.CTkLabel(box, text="• Polling Rate: 1.0s (Foreground Win32 Hook)",
+                     font=ctk.CTkFont(size=13)).pack(anchor="w", padx=20, pady=(15, 5))
+        ctk.CTkLabel(box, text="• Persistence: SQLite (activity_logs table in academix.db)",
+                     font=ctk.CTkFont(size=13)).pack(anchor="w", padx=20, pady=(0, 15))
+
+        ctk.CTkLabel(p, text="Real-time Distraction Logs", text_color="gray").grid(
+            row=2, column=0, sticky="w", pady=(15, 4))
+        self.telemetry_box = ctk.CTkTextbox(p, corner_radius=12)
+        self.telemetry_box.grid(row=3, column=0, sticky="nsew")
         return p
 
     # ---------------- Analytics ----------------
@@ -286,45 +273,68 @@ class AcademixApp(ctk.CTk):
         box = ctk.CTkFrame(p, corner_radius=12)
         box.grid(row=1, column=0, sticky="ew")
         box.grid_columnconfigure(1, weight=1)
-        data = [("Mon", .72), ("Tue", .55), ("Wed", .80), ("Thu", .40), ("Fri", .65), ("Sat", .30), ("Sun", .50)]
-        for i, (d, v) in enumerate(data):
-            ctk.CTkLabel(box, text=d, width=50).grid(row=i, column=0, padx=(20, 10), pady=8)
-            bar = ctk.CTkProgressBar(box, height=14, progress_color=GRN if v > .6 else YEL if v > .45 else RED)
-            bar.set(v)
-            bar.grid(row=i, column=1, sticky="ew", pady=8)
-            ctk.CTkLabel(box, text=f"{int(v * 100)}%", width=50).grid(row=i, column=2, padx=(10, 20))
-        ctk.CTkLabel(p, text="Sample data; replace with focus logs from the database.",
-                     text_color="gray").grid(row=2, column=0, sticky="w", pady=10)
+
+        self.distraction_label = ctk.CTkLabel(box, text="Distraction in Past 60 Minutes: Calculating...",
+                                             font=ctk.CTkFont(size=14, weight="bold"))
+        self.distraction_label.grid(row=0, column=0, padx=20, pady=20, sticky="w")
         return p
 
     # ---------------- Refresh / loop ----------------
     def refresh(self):
-        rows = []
-        for t in self.tasks:
-            h, s = compute_urgency(t["weight"], t["deadline"])
-            rows.append({**t, "hours": h, "score": s, "ref": t})
-        rows.sort(key=lambda r: r["score"], reverse=True)
+        raw_tasks = database.fetch_tasks(status="pending")
+        distraction_minutes = database.get_distraction_minutes_last_hour()
+        sorted_tasks = sort_tasks_by_urgency(raw_tasks, distraction_minutes=distraction_minutes)
 
         for w in self.feed.winfo_children():
             w.destroy()
-        for r in rows:
+        for r in sorted_tasks:
             self.card(r)
 
-        self.stats["active"].configure(text=str(len(rows)))
-        self.stats["urgent"].configure(text=str(sum(1 for r in rows if r["hours"] < 24)))
-        self.stats["focus"].configure(text="75%")
-        if rows:
-            self.next_lbl.configure(text=rows[0]["title"])
-            self.next_sub.configure(text=f"{fmt_left(rows[0]['hours'])}  |  Score {rows[0]['score']}")
+        urgent_count = sum(1 for r in sorted_tasks if "CRITICAL" in r.get("urgency_tier", ""))
+        self.stats["active"].configure(text=str(len(sorted_tasks)))
+        self.stats["urgent"].configure(text=str(urgent_count))
+        self.stats["focus"].configure(text=f"{distraction_minutes}m")
+
+        if sorted_tasks:
+            top = sorted_tasks[0]
+            self.next_lbl.configure(text=top["title"])
+            self.next_sub.configure(text=f"{fmt_left(top['hours_left'])}  |  TUI: {top['tui_score']:.2f} ({top['urgency_tier']})")
         else:
             self.next_lbl.configure(text="All clear 🎉")
             self.next_sub.configure(text="No pending tasks.")
+
+        # Update live telemetry log box
+        if hasattr(self, "telemetry_box"):
+            try:
+                logs = database.get_recent_logs(limit=15)
+                self.telemetry_box.configure(state="normal")
+                self.telemetry_box.delete("0.0", "end")
+                if logs:
+                    for entry in logs:
+                        raw_ts = entry.get("timestamp", "")
+                        ts = raw_ts.split()[-1] if raw_ts else "--:--:--"
+                        cat = entry.get("category", "Unknown")
+                        title = (entry.get("window_title") or "Unknown")[:45]
+                        icon = "❌" if cat == "Distracting" else "✅"
+                        self.telemetry_box.insert("end", f"[{ts}] {icon} {cat:<12} | {title}\n")
+                else:
+                    self.telemetry_box.insert("end", "Waiting for telemetry samples...\n")
+                self.telemetry_box.configure(state="disabled")
+            except Exception as e:
+                print("Telemetry box update error:", e)
+
+        if hasattr(self, "distraction_label"):
+            self.distraction_label.configure(
+                text=f"Distraction Logged (Last 60m): {distraction_minutes:.1f} mins"
+            )
 
     def tick(self):
         now = datetime.now()
         part = "morning" if now.hour < 12 else "afternoon" if now.hour < 18 else "evening"
         self.greet.configure(text=f"Good {part}, student 👋")
         self.clock.configure(text=now.strftime("%A, %d %B %Y  •  %H:%M:%S"))
-        if now.second == 0:  # recalculate scores every 60s
+
+        if now.second % 5 == 0:
             self.refresh()
+
         self.after(1000, self.tick)
