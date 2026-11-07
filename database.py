@@ -117,5 +117,5 @@ def get_distraction_minutes_last_hour() -> float:
         """)
         distracting_samples = cursor.fetchone()[0]
         # Each sample is 3 seconds -> minutes = (samples * 3) / 60 = samples / 20
-        distraction_minutes = (distracting_samples * 3.0) / 60.0
+        distraction_minutes = distracting_samples / 60.0
         return round(distraction_minutes, 1)

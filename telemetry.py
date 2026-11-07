@@ -4,6 +4,7 @@ import time
 from datetime import datetime
 import win32gui
 from notifier import show_alert
+from database import log_activity
 
 LOG_FILE = "distraction_logs.csv"
 
@@ -66,6 +67,12 @@ def start_tracking():
             
             is_distracted = check_for_distraction(title)
             current_time = time.time()
+
+            category = "Distracting" if is_distracted else "Productive"
+            try:
+                log_activity(window_title=title, category=category)
+            except Exception:
+                pass
 
             if is_distracted:
                 if not in_distraction:
