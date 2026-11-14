@@ -30,7 +30,7 @@ MANIFEST
 #   Usually these files are written by a python script from a template
 #   before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
-*.spec
+#*.spec
 
 # Installer logs
 pip-log.txt
@@ -219,3 +219,14 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 academix.db
+
+
+# Academix Engine local runtime & generated files
+academix.db
+academix.db*
+*.csv
+
+# Ignore temporary helper scripts (keep academix.ico tracked!)
+convert_logo.py
+generate icon.py
+ui_2.py
